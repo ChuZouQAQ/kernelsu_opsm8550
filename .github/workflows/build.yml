@@ -84,9 +84,9 @@ jobs:
           git clone --depth=1 -b ${{ inputs.kernel_branch }} https://github.com/${{ inputs.kernel_source }}/android_kernel_oneplus_${SOC}.git ${SOC}
           git clone --depth=1 -b ${{ inputs.kernel_branch }} https://github.com/${{ inputs.kernel_source }}/android_kernel_oneplus_${SOC}-modules.git ${SOC}-modules
 
-- name: Download AOSP Clang
-  run: |
-    case "${{ inputs.clang_version }}" in
+		  - name: Download AOSP Clang
+ 			  run: |
+ 	   case "${{ inputs.clang_version }}" in
       "clang-r416183b1")
         URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12-qpr3-release/clang-r416183b1.tar.gz"
         ;;
