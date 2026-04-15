@@ -160,6 +160,24 @@ jobs:
         run: |
           set -euo pipefail
 
+          apply_susfs_task_mmu_fix() {
+            local file="fs/proc/task_mmu.c"
+
+            if grep -q 'susfs_def.h' "$file"; then
+              echo "[+] task_mmu.c already includes susfs_def.h."
+              return 0
+            fi
+
+            if grep -q '^#include <linux/pkeys.h>$' "$file"; then
+              sed -i '/^#include <linux\/pkeys.h>$/a #if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux/susfs_def.h>\n#endif' "$file"
+              echo "[+] Applied fallback susfs include fix to task_mmu.c."
+              return 0
+            fi
+
+            echo "[-] Could not find a stable insertion point in $file."
+            return 1
+          }
+
           CLANG_ROOT="${GITHUB_WORKSPACE}/toolchains/${{ inputs.clang_version }}/bin"
           export PATH="${CLANG_ROOT}:$PATH"
           export ARCH=arm64
@@ -211,11 +229,22 @@ jobs:
             cp ./kernel_patches/include/linux/* ../include/linux/
             cd ..
             if ! patch -p1 < 50_add_susfs_in_gki-android13-5.15.patch; then
-              echo "==== PATCH FAILED ===="
-              echo "==== REJECT FILES ===="
-              find . -name "*.rej" -print -exec sh -c 'echo "---- $1 ----"; cat "$1"' _ {} \;
-              exit 1
-          fi
+              echo "[!] susfs patch reported conflicts, checking for known task_mmu.c drift..."
+
+              reject_files="$(find . -name "*.rej" | sort)"
+              reject_count="$(printf '%s\n' "$reject_files" | sed '/^$/d' | wc -l)"
+
+              if [[ "$reject_count" -eq 1 ]] && [[ "$reject_files" == "./fs/proc/task_mmu.c.rej" ]] && grep -q 'susfs_def.h' ./fs/proc/task_mmu.c.rej; then
+                apply_susfs_task_mmu_fix
+                rm -f ./fs/proc/task_mmu.c.rej
+                echo "[+] Resolved known susfs task_mmu.c patch drift."
+              else
+                echo "==== PATCH FAILED ===="
+                echo "==== REJECT FILES ===="
+                find . -name "*.rej" -print -exec sh -c 'echo "---- $1 ----"; cat "$1"' _ {} \;
+                exit 1
+              fi
+            fi
 
             {
               echo "CONFIG_KSU_SUSFS=y"
