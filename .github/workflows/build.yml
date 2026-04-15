@@ -210,7 +210,12 @@ jobs:
             cp ./kernel_patches/fs/* ../fs/
             cp ./kernel_patches/include/linux/* ../include/linux/
             cd ..
-            patch -p1 < 50_add_susfs_in_gki-android13-5.15.patch
+            if ! patch -p1 < 50_add_susfs_in_gki-android13-5.15.patch; then
+              echo "==== PATCH FAILED ===="
+              echo "==== REJECT FILES ===="
+              find . -name "*.rej" -print -exec sh -c 'echo "---- $1 ----"; cat "$1"' _ {} \;
+              exit 1
+          fi
 
             {
               echo "CONFIG_KSU_SUSFS=y"
