@@ -84,40 +84,34 @@ jobs:
           git clone --depth=1 -b ${{ inputs.kernel_branch }} https://github.com/${{ inputs.kernel_source }}/android_kernel_oneplus_${SOC}.git ${SOC}
           git clone --depth=1 -b ${{ inputs.kernel_branch }} https://github.com/${{ inputs.kernel_source }}/android_kernel_oneplus_${SOC}-modules.git ${SOC}-modules
 
-      - name: Download AOSP Clang
-        run: |
-          case "${{ inputs.clang_version }}" in
+- name: Download AOSP Clang
+  run: |
+    case "${{ inputs.clang_version }}" in
+      "clang-r416183b1")
+        URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12-qpr3-release/clang-r416183b1.tar.gz"
+        ;;
+      "clang-r450784d")
+        URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android13-qpr3-release/clang-r450784d.tar.gz"
+        ;;
+      "clang-r487747c")
+        URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android14-qpr3-release/clang-r487747c.tar.gz"
+        ;;
+      "clang-r536225")
+        URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android15-qpr2-release/clang-r536225.tar.gz"
+        ;;
+      "clang-r547379")
+        URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android16-qpr2-release/clang-r547379.tar.gz"
+        ;;
+      "clang-r563880c")
+        URL="https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android16-qpr2-release/clang-r563880c.tar.gz"
+        ;;
+    esac
 
-            "clang-r416183b1")
-              curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12-qpr3-release/clang-r416183b1.tar.gz
-              ;;
+    mkdir -p toolchains/${{ inputs.clang_version }}
+    curl -L "$URL" -o "${{ inputs.clang_version }}.tar.gz"
+    tar -xf "${{ inputs.clang_version }}.tar.gz" -C toolchains/${{ inputs.clang_version }}
+    rm "${{ inputs.clang_version }}.tar.gz"
 
-            "clang-r450784d")
-              curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android13-qpr3-release/clang-r450784d.tar.gz
-              ;;
-
-            "clang-r487747c")
-              curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android14-qpr3-release/clang-r487747c.tar.gz
-              ;;
-
-            "clang-r536225")
-              curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android15-qpr2-release/clang-r536225.tar.gz
-              ;;
-
-            "clang-r547379")
-              curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android16-qpr2-release/clang-r547379.tar.gz
-              ;;
-              
-            "clang-r563880c")
-              curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android16-qpr2-release/clang-r563880c.tar.gz
-              ;;
-              
-          esac
-          
-          mkdir -p toolchains/${{ inputs.clang_version }}
-          cd toolchains
-
-          tar -xf "${{ inputs.clang_version }}.tar.gz" -C ${{ inputs.clang_version }}
 
       - name: Compile Kernel
         run: |
