@@ -44,6 +44,10 @@ on:
 jobs:
   Kernel_CI:
     runs-on: ubuntu-latest
+    timeout-minutes: 120
+    concurrency:
+      group: kernel-ci-${{ github.workflow }}-${{ github.ref_name }}-${{ inputs.kernel_source }}-${{ inputs.kernel_branch }}-${{ inputs.ksu_type }}-${{ inputs.clang_version }}
+      cancel-in-progress: true
 
     permissions:
       contents: write
@@ -107,20 +111,29 @@ jobs:
               ;;
           esac
 
+      - name: Set build metadata
+        run: |
+          set -euo pipefail
+          echo "BUILD_TIMESTAMP=$(date -u +'%Y%m%d_%H%M')" >> "$GITHUB_ENV"
+
+      - name: Restore AOSP Clang cache
+        id: clang-cache
+        uses: actions/cache@v4
+        with:
+          path: toolchains/${{ inputs.clang_version }}
+          key: ${{ runner.os }}-aosp-clang-${{ inputs.clang_version }}
+
       - name: Clone Kernel Source
         run: |
           set -euo pipefail
 
           KERNEL_REPO="https://github.com/${{ inputs.kernel_source }}/android_kernel_oneplus_${SOC}.git"
-          MODULES_REPO="https://github.com/${{ inputs.kernel_source }}/android_kernel_oneplus_${SOC}-modules.git"
 
           echo "Cloning kernel repo: $KERNEL_REPO"
-          git clone --depth=1 -b "${{ inputs.kernel_branch }}" "$KERNEL_REPO" "${SOC}"
-
-          echo "Cloning modules repo: $MODULES_REPO"
-          git clone --depth=1 -b "${{ inputs.kernel_branch }}" "$MODULES_REPO" "${SOC}-modules"
+          git clone --depth=1 --single-branch --no-tags -b "${{ inputs.kernel_branch }}" "$KERNEL_REPO" "${SOC}"
 
       - name: Download AOSP Clang
+        if: steps.clang-cache.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
 
@@ -150,10 +163,13 @@ jobs:
           esac
 
           mkdir -p "toolchains/${{ inputs.clang_version }}"
-          curl -fL "$URL" -o "${{ inputs.clang_version }}.tar.gz"
+          curl --retry 5 --retry-delay 3 --retry-all-errors -fL "$URL" -o "${{ inputs.clang_version }}.tar.gz"
           tar -xf "${{ inputs.clang_version }}.tar.gz" -C "toolchains/${{ inputs.clang_version }}"
           rm -f "${{ inputs.clang_version }}.tar.gz"
 
+      - name: Validate AOSP Clang
+        run: |
+          set -euo pipefail
           test -x "${GITHUB_WORKSPACE}/toolchains/${{ inputs.clang_version }}/bin/clang"
 
       - name: Compile Kernel
@@ -274,11 +290,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          ZIP_NAME="${{ env.SOC }}_${{ inputs.ksu_type }}_$(date -u +'%Y%m%d_%H%M')"
+          ZIP_NAME="${{ env.SOC }}_${{ inputs.ksu_type }}_${BUILD_TIMESTAMP}"
+          echo "ZIP_NAME=$ZIP_NAME" >> "$GITHUB_ENV"
 
-          git clone --depth=1 https://github.com/Kernel-SU/AnyKernel3.git
+          git clone --depth=1 --single-branch --no-tags https://github.com/Kernel-SU/AnyKernel3.git
           cp "${SOC}/out/arch/arm64/boot/Image" AnyKernel3/Image
-          cp "${SOC}/out/arch/arm64/boot/Image" ./Image
 
           cd AnyKernel3
           zip -r9 "../${ZIP_NAME}.zip" . -x .git/\* .github/\*
@@ -289,19 +305,17 @@ jobs:
         run: |
           set -euo pipefail
 
-          SAFE_BRANCH="$(echo "${{ inputs.kernel_branch }}" | tr '/' '-')"
-          REL_NAME="${SOC}_${{ inputs.kernel_source }}-${SAFE_BRANCH}_${{ inputs.ksu_type }}_$(date -u +'%Y%m%d_%H%M')"
+          SAFE_BRANCH="${{ inputs.kernel_branch }}"
+          SAFE_BRANCH="${SAFE_BRANCH//\//-}"
+          REL_NAME="${SOC}_${{ inputs.kernel_source }}-${SAFE_BRANCH}_${{ inputs.ksu_type }}_${BUILD_TIMESTAMP}"
+          ZIP_FILE="${GITHUB_WORKSPACE}/${ZIP_NAME}.zip"
+          IMAGE_FILE="${GITHUB_WORKSPACE}/${SOC}/out/arch/arm64/boot/Image"
 
-          cd "${GITHUB_WORKSPACE}"
-          ZIP_FILE="$(find . -maxdepth 1 -type f -name '*.zip' | head -n1)"
-
-          if [ -z "${ZIP_FILE}" ]; then
-            echo "No zip package found"
-            exit 1
-          fi
+          test -f "${ZIP_FILE}"
+          test -f "${IMAGE_FILE}"
 
           gh release create "$REL_NAME" \
             --title "$REL_NAME" \
             --notes "" \
             "$ZIP_FILE" \
-            Image
+            "$IMAGE_FILE"
