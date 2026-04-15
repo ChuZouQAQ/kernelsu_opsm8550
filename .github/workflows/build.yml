@@ -128,9 +128,20 @@ jobs:
           set -euo pipefail
 
           KERNEL_REPO="https://github.com/${{ inputs.kernel_source }}/android_kernel_oneplus_${SOC}.git"
+          MODULES_REPO="https://github.com/${{ inputs.kernel_source }}/android_kernel_oneplus_${SOC}-modules.git"
 
           echo "Cloning kernel repo: $KERNEL_REPO"
-          git clone --depth=1 --single-branch --no-tags -b "${{ inputs.kernel_branch }}" "$KERNEL_REPO" "${SOC}"
+          git clone --depth=1 --single-branch --no-tags -b "${{ inputs.kernel_branch }}" "$KERNEL_REPO" "${SOC}" || {
+            echo "::error::Failed to clone kernel repo for branch '${{ inputs.kernel_branch }}': $KERNEL_REPO"
+            exit 1
+          }
+
+          echo "Cloning modules repo: $MODULES_REPO"
+          git clone --depth=1 --single-branch --no-tags -b "${{ inputs.kernel_branch }}" "$MODULES_REPO" "${SOC}-modules" || {
+            echo "::error::Failed to clone modules repo for branch '${{ inputs.kernel_branch }}': $MODULES_REPO"
+            echo "::error::This kernel tree expects a sibling '${SOC}-modules' repo during defconfig/Kconfig resolution."
+            exit 1
+          }
 
       - name: Download AOSP Clang
         if: steps.clang-cache.outputs.cache-hit != 'true'
