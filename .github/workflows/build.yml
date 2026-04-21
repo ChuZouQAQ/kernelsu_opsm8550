@@ -218,6 +218,25 @@ jobs:
             fi
           }
 
+          setup_kernelsu_next() {
+            local ref="$1"
+            local repo_dir="KernelSU-Next"
+            local driver_dir="drivers"
+
+            test -d "$driver_dir" || {
+              echo "::error::drivers directory not found in kernel tree"
+              exit 1
+            }
+
+            rm -rf "$repo_dir"
+            git clone --depth=1 --single-branch --no-tags -b "$ref" https://github.com/KernelSU-Next/KernelSU-Next.git "$repo_dir"
+
+            ln -sfn "$(realpath --relative-to="$driver_dir" "$repo_dir/kernel")" "$driver_dir/kernelsu"
+
+            grep -q 'obj-\$(CONFIG_KSU) += kernelsu/' "$driver_dir/Makefile" || printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> "$driver_dir/Makefile"
+            grep -q 'source "drivers/kernelsu/Kconfig"' "$driver_dir/Kconfig" || sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' "$driver_dir/Kconfig"
+          }
+
           set_config_value() {
             local config_file="$1"
             local key="$2"
@@ -265,19 +284,19 @@ jobs:
             "None")
               ;;
             "Official-KernelSU")
-              curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s main
+              curl --retry 5 --retry-delay 3 --retry-all-errors -fLSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s main
               ;;
             "KowSU")
-              curl -LSs "https://raw.githubusercontent.com/KOWX712/KernelSU/main/kernel/setup.sh" | bash -s master
+              curl --retry 5 --retry-delay 3 --retry-all-errors -fLSs "https://raw.githubusercontent.com/KOWX712/KernelSU/main/kernel/setup.sh" | bash -s master
               ;;
             "KernelSU-Next")
-              curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -
+              setup_kernelsu_next next
               ;;
             "KernelSU-Next-with-susfs")
-              curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
+              setup_kernelsu_next next-susfs
               ;;
             "ReSukiSU"|"ReSukiSU-with-susfs")
-              curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -s main
+              curl --retry 5 --retry-delay 3 --retry-all-errors -fLSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -s main
               ;;
             *)
               echo "Unsupported ksu_type: ${{ inputs.ksu_type }}"
