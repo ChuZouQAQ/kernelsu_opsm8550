@@ -271,10 +271,10 @@ jobs:
               curl -LSs "https://raw.githubusercontent.com/KOWX712/KernelSU/main/kernel/setup.sh" | bash -s master
               ;;
             "KernelSU-Next")
-              curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s dev
+              curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash -
               ;;
             "KernelSU-Next-with-susfs")
-              curl -LSs "https://raw.githubusercontent.com/pershoot/KernelSU-Next/refs/heads/dev-susfs/kernel/setup.sh" | bash -s dev-susfs
+              curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
               ;;
             "ReSukiSU"|"ReSukiSU-with-susfs")
               curl -LSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -s main
@@ -286,7 +286,7 @@ jobs:
           esac
 
           if [[ "${{ inputs.ksu_type }}" == *susfs ]]; then
-            SUSFS_REF="1.4.2-gki-android13-5.15"
+            SUSFS_REF="gki-android13-5.15"
             git clone --depth=1 -b "$SUSFS_REF" https://gitlab.com/simonpunk/susfs4ksu.git susfs
             cd susfs
             cp ./kernel_patches/50_add_susfs_in_gki-android13-5.15.patch ..
@@ -295,6 +295,13 @@ jobs:
             mkdir -p ../drivers/kernelsu/include/linux
             cp ./kernel_patches/include/linux/* ../drivers/kernelsu/include/linux/
             cd ..
+
+            test -f include/linux/susfs_def.h || {
+              echo "::error::susfs_def.h was not copied into include/linux from $SUSFS_REF"
+              find include/linux -maxdepth 1 -type f -name 'susfs*' -print || true
+              exit 1
+            }
+
             if ! patch -p1 < 50_add_susfs_in_gki-android13-5.15.patch; then
               echo "[!] susfs patch reported conflicts, checking for known task_mmu.c drift..."
 
