@@ -196,7 +196,7 @@ jobs:
             fi
 
             if grep -q '^#include <linux/pkeys.h>$' "$file"; then
-              sed -i '/^#include <linux\/pkeys.h>$/a #if defined(CONFIG_KSU_SUSFS_SUS_KSTAT) || defined(CONFIG_KSU_SUSFS_SUS_MAP) || defined(CONFIG_KSU_SUSFS_OPEN_REDIRECT)\n#include <linux/susfs_def.h>\n#endif' "$file"
+              sed -i '/^#include <linux\/pkeys.h>$/a #ifdef CONFIG_KSU_SUSFS\n#include <linux/susfs_def.h>\n#endif' "$file"
               echo "[+] Applied fallback susfs include fix to task_mmu.c."
               return 0
             fi
@@ -205,15 +205,30 @@ jobs:
             return 1
           }
 
+          detect_kernelsu_driver_dir() {
+            if test -d "common/drivers"; then
+              echo "common/drivers"
+            elif test -d "drivers"; then
+              echo "drivers"
+            else
+              return 1
+            fi
+          }
+
           patch_susfs_kernelsu_layout() {
             local file="fs/susfs.c"
+            local driver_dir
+            local target_include
 
             if [[ ! -f "$file" ]]; then
               return 0
             fi
 
-            if [[ -f "drivers/kernelsu/hook/core_hook.h" ]] && [[ ! -f "drivers/kernelsu/core_hook.h" ]]; then
-              sed -i 's|"\.\./drivers/kernelsu/core_hook.h"|"../drivers/kernelsu/hook/core_hook.h"|' "$file"
+            driver_dir="$(detect_kernelsu_driver_dir)" || return 0
+            target_include="../${driver_dir}/kernelsu/hook/core_hook.h"
+
+            if [[ -f "${driver_dir}/kernelsu/hook/core_hook.h" ]] && [[ ! -f "${driver_dir}/kernelsu/core_hook.h" ]]; then
+              sed -i "s|\"\\.\\./drivers/kernelsu/core_hook.h\"|\"${target_include}\"|" "$file"
               echo "[+] Patched susfs core_hook include for nested KernelSU layout."
             fi
           }
@@ -221,16 +236,20 @@ jobs:
           setup_kernelsu_next() {
             local ref="$1"
             local repo_dir="KernelSU-Next"
-            local driver_dir="drivers"
+            local driver_dir
 
-            test -d "$driver_dir" || {
+            driver_dir="$(detect_kernelsu_driver_dir)" || {
               echo "::error::drivers directory not found in kernel tree"
               exit 1
             }
 
             rm -rf "$repo_dir"
-            git clone --depth=1 --single-branch --no-tags -b "$ref" https://github.com/KernelSU-Next/KernelSU-Next.git "$repo_dir"
+            git clone --single-branch -b "$ref" https://github.com/KernelSU-Next/KernelSU-Next.git "$repo_dir" || {
+              echo "::error::Failed to clone KernelSU-Next repo branch '$ref' from https://github.com/KernelSU-Next/KernelSU-Next.git"
+              exit 1
+            }
 
+            rm -rf "$driver_dir/kernelsu"
             ln -sfn "$(realpath --relative-to="$driver_dir" "$repo_dir/kernel")" "$driver_dir/kernelsu"
 
             grep -q 'obj-\$(CONFIG_KSU) += kernelsu/' "$driver_dir/Makefile" || printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> "$driver_dir/Makefile"
@@ -293,7 +312,7 @@ jobs:
               setup_kernelsu_next next
               ;;
             "KernelSU-Next-with-susfs")
-              setup_kernelsu_next next-susfs
+              setup_kernelsu_next next
               ;;
             "ReSukiSU"|"ReSukiSU-with-susfs")
               curl --retry 5 --retry-delay 3 --retry-all-errors -fLSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -s main
@@ -305,19 +324,30 @@ jobs:
           esac
 
           if [[ "${{ inputs.ksu_type }}" == *susfs ]]; then
+            KSU_DRIVER_DIR="$(detect_kernelsu_driver_dir)" || {
+              echo "::error::drivers directory not found before applying susfs"
+              exit 1
+            }
+
             SUSFS_REF="gki-android13-5.15"
-            git clone --depth=1 -b "$SUSFS_REF" https://gitlab.com/simonpunk/susfs4ksu.git susfs
+            git clone --depth=1 --single-branch --no-tags -b "$SUSFS_REF" https://gitlab.com/simonpunk/susfs4ksu.git susfs
             cd susfs
             cp ./kernel_patches/50_add_susfs_in_gki-android13-5.15.patch ..
             cp ./kernel_patches/fs/* ../fs/
             cp ./kernel_patches/include/linux/* ../include/linux/
-            mkdir -p ../drivers/kernelsu/include/linux
-            cp ./kernel_patches/include/linux/* ../drivers/kernelsu/include/linux/
+            mkdir -p "../${KSU_DRIVER_DIR}/kernelsu/include/linux"
+            cp ./kernel_patches/include/linux/* "../${KSU_DRIVER_DIR}/kernelsu/include/linux/"
             cd ..
 
             test -f include/linux/susfs_def.h || {
               echo "::error::susfs_def.h was not copied into include/linux from $SUSFS_REF"
               find include/linux -maxdepth 1 -type f -name 'susfs*' -print || true
+              exit 1
+            }
+
+            test -f "${KSU_DRIVER_DIR}/kernelsu/include/linux/susfs_def.h" || {
+              echo "::error::susfs_def.h was not copied into ${KSU_DRIVER_DIR}/kernelsu/include/linux from $SUSFS_REF"
+              find "${KSU_DRIVER_DIR}/kernelsu/include/linux" -maxdepth 1 -type f -name 'susfs*' -print || true
               exit 1
             }
 
