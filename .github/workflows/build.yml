@@ -205,6 +205,19 @@ jobs:
             return 1
           }
 
+          patch_susfs_kernelsu_layout() {
+            local file="fs/susfs.c"
+
+            if [[ ! -f "$file" ]]; then
+              return 0
+            fi
+
+            if [[ -f "drivers/kernelsu/hook/core_hook.h" ]] && [[ ! -f "drivers/kernelsu/core_hook.h" ]]; then
+              sed -i 's|"\.\./drivers/kernelsu/core_hook.h"|"../drivers/kernelsu/hook/core_hook.h"|' "$file"
+              echo "[+] Patched susfs core_hook include for nested KernelSU layout."
+            fi
+          }
+
           set_config_value() {
             local config_file="$1"
             local key="$2"
@@ -279,6 +292,8 @@ jobs:
             cp ./kernel_patches/50_add_susfs_in_gki-android13-5.15.patch ..
             cp ./kernel_patches/fs/* ../fs/
             cp ./kernel_patches/include/linux/* ../include/linux/
+            mkdir -p ../drivers/kernelsu/include/linux
+            cp ./kernel_patches/include/linux/* ../drivers/kernelsu/include/linux/
             cd ..
             if ! patch -p1 < 50_add_susfs_in_gki-android13-5.15.patch; then
               echo "[!] susfs patch reported conflicts, checking for known task_mmu.c drift..."
@@ -297,6 +312,8 @@ jobs:
                 exit 1
               fi
             fi
+
+            patch_susfs_kernelsu_layout
 
             {
               echo "CONFIG_KSU_SUSFS=y"
