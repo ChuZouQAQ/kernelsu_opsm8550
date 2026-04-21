@@ -273,7 +273,8 @@ jobs:
           esac
 
           if [[ "${{ inputs.ksu_type }}" == *susfs ]]; then
-            git clone --depth=1 -b gki-android13-5.15 https://gitlab.com/simonpunk/susfs4ksu.git susfs
+            SUSFS_REF="1.4.2-gki-android13-5.15"
+            git clone --depth=1 -b "$SUSFS_REF" https://gitlab.com/simonpunk/susfs4ksu.git susfs
             cd susfs
             cp ./kernel_patches/50_add_susfs_in_gki-android13-5.15.patch ..
             cp ./kernel_patches/fs/* ../fs/
@@ -302,11 +303,10 @@ jobs:
               echo "CONFIG_KSU_SUSFS_SUS_PATH=y"
               echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y"
               echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y"
-              echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=n"
+              echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y"
               echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y"
               echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y"
               echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y"
-              echo "CONFIG_KSU_SUSFS_SUS_MAP=y"
             } >> arch/arm64/configs/gki_defconfig
           fi
 
@@ -323,11 +323,10 @@ jobs:
             set_config_value out/.config CONFIG_KSU_SUSFS_SUS_PATH y
             set_config_value out/.config CONFIG_KSU_SUSFS_SUS_MOUNT y
             set_config_value out/.config CONFIG_KSU_SUSFS_SUS_KSTAT y
-            set_config_value out/.config CONFIG_KSU_SUSFS_SPOOF_UNAME n
+            set_config_value out/.config CONFIG_KSU_SUSFS_SPOOF_UNAME y
             set_config_value out/.config CONFIG_KSU_SUSFS_ENABLE_LOG y
             set_config_value out/.config CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS y
             set_config_value out/.config CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG y
-            set_config_value out/.config CONFIG_KSU_SUSFS_SUS_MAP y
           fi
 
           if [[ "${{ inputs.ksu_type }}" != "None" ]]; then
