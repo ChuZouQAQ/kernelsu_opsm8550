@@ -205,6 +205,30 @@ jobs:
             return 1
           }
 
+          set_config_value() {
+            local config_file="$1"
+            local key="$2"
+            local value="$3"
+
+            if [[ "$value" == "n" ]]; then
+              if grep -q "^${key}=" "$config_file"; then
+                sed -i "s|^${key}=.*|# ${key} is not set|" "$config_file"
+              elif grep -q "^# ${key} is not set$" "$config_file"; then
+                :
+              else
+                echo "# ${key} is not set" >> "$config_file"
+              fi
+            else
+              if grep -q "^${key}=" "$config_file"; then
+                sed -i "s|^${key}=.*|${key}=${value}|" "$config_file"
+              elif grep -q "^# ${key} is not set$" "$config_file"; then
+                sed -i "s|^# ${key} is not set$|${key}=${value}|" "$config_file"
+              else
+                echo "${key}=${value}" >> "$config_file"
+              fi
+            fi
+          }
+
           CLANG_ROOT="${GITHUB_WORKSPACE}/toolchains/${{ inputs.clang_version }}/bin"
           export PATH="${CLANG_ROOT}:$PATH"
           export ARCH=arm64
@@ -293,7 +317,37 @@ jobs:
           fi
 
           make O=out gki_defconfig vendor/kalama_GKI.config vendor/oplus/kalama_GKI.config vendor/debugfs.config
-          make -j"$(nproc)" O=out Image
+
+          if [[ "${{ inputs.ksu_type }}" == *susfs ]]; then
+            set_config_value out/.config CONFIG_KSU_SUSFS y
+            set_config_value out/.config CONFIG_KSU_SUSFS_SUS_PATH y
+            set_config_value out/.config CONFIG_KSU_SUSFS_SUS_MOUNT y
+            set_config_value out/.config CONFIG_KSU_SUSFS_SUS_KSTAT y
+            set_config_value out/.config CONFIG_KSU_SUSFS_SPOOF_UNAME n
+            set_config_value out/.config CONFIG_KSU_SUSFS_ENABLE_LOG y
+            set_config_value out/.config CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS y
+            set_config_value out/.config CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG y
+            set_config_value out/.config CONFIG_KSU_SUSFS_SUS_MAP y
+          fi
+
+          if [[ "${{ inputs.ksu_type }}" != "None" ]]; then
+            set_config_value out/.config CONFIG_TMPFS_XATTR y
+          fi
+
+          make O=out olddefconfig
+
+          if [[ "${{ inputs.ksu_type }}" == *susfs ]]; then
+            echo "==== SUSFS CONFIG SNAPSHOT ===="
+            grep -E '^CONFIG_KSU_SUSFS|^CONFIG_TMPFS_XATTR=' out/.config || true
+          fi
+
+          make -j"$(nproc)" O=out Image 2>&1 | tee build.log || {
+            echo "==== BUILD ERROR SUMMARY ===="
+            grep -nE ' error:|undefined reference|No rule to make target|fatal error:' build.log | tail -n 50 || true
+            echo "==== BUILD FAILED (last 200 lines) ===="
+            tail -n 200 build.log || true
+            exit 1
+          }
 
           test -f out/arch/arm64/boot/Image
 
