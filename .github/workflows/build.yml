@@ -270,10 +270,12 @@ jobs:
           }
 
           setup_kernelsu_next() {
-            local ref="$1"
+            local requested_ref="$1"
             local repo_dir="KernelSU-Next"
             local driver_dir
             local kconfig_source
+            local ref
+            local cloned=0
 
             driver_dir="$(detect_kernelsu_driver_dir)" || {
               echo "::error::drivers directory not found in kernel tree"
@@ -282,10 +284,25 @@ jobs:
             kconfig_source="$(kernelsu_kconfig_source_path "$driver_dir")"
 
             rm -rf "$repo_dir"
-            git clone --depth=1 --single-branch --no-tags -b "$ref" https://github.com/KernelSU-Next/KernelSU-Next.git "$repo_dir" || {
-              echo "::error::Failed to clone KernelSU-Next repo branch '$ref' from https://github.com/KernelSU-Next/KernelSU-Next.git"
+            for ref in "$requested_ref" dev main; do
+              if [[ -z "$ref" ]]; then
+                continue
+              fi
+
+              if git clone --depth=1 --single-branch --no-tags -b "$ref" https://github.com/KernelSU-Next/KernelSU-Next.git "$repo_dir"; then
+                echo "[+] Cloned KernelSU-Next branch '$ref'."
+                cloned=1
+                break
+              fi
+
+              rm -rf "$repo_dir"
+              echo "[!] KernelSU-Next branch '$ref' is unavailable, trying next fallback..."
+            done
+
+            if [[ "$cloned" -ne 1 ]]; then
+              echo "::error::Failed to clone KernelSU-Next from https://github.com/KernelSU-Next/KernelSU-Next.git using refs: $requested_ref, dev, main"
               exit 1
-            }
+            fi
 
             rm -rf "$driver_dir/kernelsu"
             ln -sfn "$(realpath --relative-to="$driver_dir" "$repo_dir/kernel")" "$driver_dir/kernelsu"
@@ -378,10 +395,10 @@ jobs:
               curl --retry 5 --retry-delay 3 --retry-all-errors -fLSs "https://raw.githubusercontent.com/KOWX712/KernelSU/main/kernel/setup.sh" | bash -s master
               ;;
             "KernelSU-Next")
-              setup_kernelsu_next next
+              setup_kernelsu_next dev
               ;;
             "KernelSU-Next-with-susfs")
-              setup_kernelsu_next next
+              setup_kernelsu_next dev
               ;;
             "ReSukiSU"|"ReSukiSU-with-susfs")
               curl --retry 5 --retry-delay 3 --retry-all-errors -fLSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -s main
