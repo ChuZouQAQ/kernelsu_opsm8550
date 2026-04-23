@@ -269,6 +269,40 @@ jobs:
             fi
           }
 
+          patch_kernelsu_for_susfs() {
+            local ksu_dir="$1"
+            local patch_file="${ksu_dir}/10_enable_susfs_for_ksu.patch"
+            local kconfig_file="${ksu_dir}/Kconfig"
+
+            test -f "$kconfig_file" || {
+              echo "::error::KernelSU Kconfig not found at $kconfig_file"
+              exit 1
+            }
+
+            if grep -q 'KSU_SUSFS' "$kconfig_file"; then
+              echo "[+] KernelSU tree already contains KSU_SUSFS entries."
+              return 0
+            fi
+
+            test -f "$patch_file" || {
+              echo "::error::Missing KernelSU susfs patch at $patch_file"
+              exit 1
+            }
+
+            (
+              cd "$ksu_dir"
+              patch -p1 < "$(basename "$patch_file")"
+            ) || {
+              echo "::error::Failed to apply KernelSU susfs patch in $ksu_dir"
+              exit 1
+            }
+
+            grep -q 'KSU_SUSFS' "$kconfig_file" || {
+              echo "::error::KernelSU susfs patch applied but KSU_SUSFS is still missing from $kconfig_file"
+              exit 1
+            }
+          }
+
           setup_kernelsu_next() {
             local requested_ref="$1"
             local repo_dir="KernelSU-Next"
@@ -356,6 +390,7 @@ jobs:
               CONFIG_KSU_SUSFS_SPOOF_UNAME \
               CONFIG_KSU_SUSFS_ENABLE_LOG \
               CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
+              CONFIG_KSU_SUSFS_HAS_MAGIC_MOUNT \
               CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
           }
 
@@ -364,6 +399,17 @@ jobs:
 
             enable_config_values "$config_file" \
               CONFIG_TMPFS_XATTR
+          }
+
+          require_config_enabled() {
+            local config_file="$1"
+            local key="$2"
+
+            if ! grep -q "^${key}=y$" "$config_file"; then
+              echo "::error::Expected ${key}=y in ${config_file}, but it was not enabled."
+              grep -n "${key}" "$config_file" || true
+              exit 1
+            fi
           }
 
           CLANG_ROOT="${GITHUB_WORKSPACE}/toolchains/${{ inputs.clang_version }}/bin"
@@ -418,12 +464,15 @@ jobs:
             SUSFS_REF="gki-android13-5.15"
             git clone --depth=1 --single-branch --no-tags -b "$SUSFS_REF" https://gitlab.com/simonpunk/susfs4ksu.git susfs
             cd susfs
+            cp ./kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch "../${KSU_DRIVER_DIR}/kernelsu/"
             cp ./kernel_patches/50_add_susfs_in_gki-android13-5.15.patch ..
             cp ./kernel_patches/fs/* ../fs/
             cp ./kernel_patches/include/linux/* ../include/linux/
             mkdir -p "../${KSU_DRIVER_DIR}/kernelsu/include/linux"
             cp ./kernel_patches/include/linux/* "../${KSU_DRIVER_DIR}/kernelsu/include/linux/"
             cd ..
+
+            patch_kernelsu_for_susfs "${KSU_DRIVER_DIR}/kernelsu"
 
             test -f include/linux/susfs_def.h || {
               echo "::error::susfs_def.h was not copied into include/linux from $SUSFS_REF"
@@ -479,6 +528,7 @@ jobs:
           make O=out olddefconfig
 
           if [[ "${{ inputs.ksu_type }}" == *susfs ]]; then
+            require_config_enabled out/.config CONFIG_KSU_SUSFS
             echo "==== SUSFS CONFIG SNAPSHOT ===="
             grep -E '^CONFIG_KSU_SUSFS|^CONFIG_TMPFS_XATTR=' out/.config || true
           fi
