@@ -270,8 +270,9 @@ jobs:
           }
 
           patch_kernelsu_for_susfs() {
-            local ksu_dir="$1"
-            local patch_file="${ksu_dir}/10_enable_susfs_for_ksu.patch"
+            local ksu_repo_dir="$1"
+            local ksu_dir="$2"
+            local patch_file="${ksu_repo_dir}/10_enable_susfs_for_ksu.patch"
             local kconfig_file="${ksu_dir}/Kconfig"
 
             test -f "$kconfig_file" || {
@@ -290,10 +291,10 @@ jobs:
             }
 
             (
-              cd "$ksu_dir"
+              cd "$ksu_repo_dir"
               patch -p1 < "$(basename "$patch_file")"
             ) || {
-              echo "::error::Failed to apply KernelSU susfs patch in $ksu_dir"
+              echo "::error::Failed to apply KernelSU susfs patch in $ksu_repo_dir"
               exit 1
             }
 
@@ -460,19 +461,21 @@ jobs:
               echo "::error::drivers directory not found before applying susfs"
               exit 1
             }
+            KSU_KERNEL_DIR="$(readlink -f "${KSU_DRIVER_DIR}/kernelsu")"
+            KSU_REPO_DIR="$(dirname "${KSU_KERNEL_DIR}")"
 
             SUSFS_REF="gki-android13-5.15"
             git clone --depth=1 --single-branch --no-tags -b "$SUSFS_REF" https://gitlab.com/simonpunk/susfs4ksu.git susfs
             cd susfs
-            cp ./kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch "../${KSU_DRIVER_DIR}/kernelsu/"
+            cp ./kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch "${KSU_REPO_DIR}/"
             cp ./kernel_patches/50_add_susfs_in_gki-android13-5.15.patch ..
             cp ./kernel_patches/fs/* ../fs/
             cp ./kernel_patches/include/linux/* ../include/linux/
-            mkdir -p "../${KSU_DRIVER_DIR}/kernelsu/include/linux"
-            cp ./kernel_patches/include/linux/* "../${KSU_DRIVER_DIR}/kernelsu/include/linux/"
+            mkdir -p "${KSU_KERNEL_DIR}/include/linux"
+            cp ./kernel_patches/include/linux/* "${KSU_KERNEL_DIR}/include/linux/"
             cd ..
 
-            patch_kernelsu_for_susfs "${KSU_DRIVER_DIR}/kernelsu"
+            patch_kernelsu_for_susfs "${KSU_REPO_DIR}" "${KSU_KERNEL_DIR}"
 
             test -f include/linux/susfs_def.h || {
               echo "::error::susfs_def.h was not copied into include/linux from $SUSFS_REF"
@@ -480,9 +483,9 @@ jobs:
               exit 1
             }
 
-            test -f "${KSU_DRIVER_DIR}/kernelsu/include/linux/susfs_def.h" || {
-              echo "::error::susfs_def.h was not copied into ${KSU_DRIVER_DIR}/kernelsu/include/linux from $SUSFS_REF"
-              find "${KSU_DRIVER_DIR}/kernelsu/include/linux" -maxdepth 1 -type f -name 'susfs*' -print || true
+            test -f "${KSU_KERNEL_DIR}/include/linux/susfs_def.h" || {
+              echo "::error::susfs_def.h was not copied into ${KSU_KERNEL_DIR}/include/linux from $SUSFS_REF"
+              find "${KSU_KERNEL_DIR}/include/linux" -maxdepth 1 -type f -name 'susfs*' -print || true
               exit 1
             }
 
