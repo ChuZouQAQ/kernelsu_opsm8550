@@ -215,6 +215,42 @@ jobs:
             fi
           }
 
+          kernelsu_kconfig_source_path() {
+            local driver_dir="$1"
+            echo "${driver_dir}/kernelsu/Kconfig"
+          }
+
+          ensure_line_in_file() {
+            local file="$1"
+            local line="$2"
+
+            grep -qxF "$line" "$file" || printf '%s\n' "$line" >> "$file"
+          }
+
+          insert_line_before_first_match() {
+            local file="$1"
+            local match_line="$2"
+            local insert_line="$3"
+            local tmp_file
+
+            grep -qxF "$insert_line" "$file" && return 0
+
+            tmp_file="$(mktemp)"
+            awk -v match_line="$match_line" -v insert_line="$insert_line" '
+              !inserted && $0 == match_line {
+                print insert_line
+                inserted = 1
+              }
+              { print }
+              END {
+                if (!inserted) {
+                  print insert_line
+                }
+              }
+            ' "$file" > "$tmp_file"
+            mv "$tmp_file" "$file"
+          }
+
           patch_susfs_kernelsu_layout() {
             local file="fs/susfs.c"
             local driver_dir
@@ -237,14 +273,16 @@ jobs:
             local ref="$1"
             local repo_dir="KernelSU-Next"
             local driver_dir
+            local kconfig_source
 
             driver_dir="$(detect_kernelsu_driver_dir)" || {
               echo "::error::drivers directory not found in kernel tree"
               exit 1
             }
+            kconfig_source="$(kernelsu_kconfig_source_path "$driver_dir")"
 
             rm -rf "$repo_dir"
-            git clone --single-branch -b "$ref" https://github.com/KernelSU-Next/KernelSU-Next.git "$repo_dir" || {
+            git clone --depth=1 --single-branch --no-tags -b "$ref" https://github.com/KernelSU-Next/KernelSU-Next.git "$repo_dir" || {
               echo "::error::Failed to clone KernelSU-Next repo branch '$ref' from https://github.com/KernelSU-Next/KernelSU-Next.git"
               exit 1
             }
@@ -252,8 +290,8 @@ jobs:
             rm -rf "$driver_dir/kernelsu"
             ln -sfn "$(realpath --relative-to="$driver_dir" "$repo_dir/kernel")" "$driver_dir/kernelsu"
 
-            grep -q 'obj-\$(CONFIG_KSU) += kernelsu/' "$driver_dir/Makefile" || printf '\nobj-$(CONFIG_KSU) += kernelsu/\n' >> "$driver_dir/Makefile"
-            grep -q 'source "drivers/kernelsu/Kconfig"' "$driver_dir/Kconfig" || sed -i '/endmenu/i\source "drivers/kernelsu/Kconfig"' "$driver_dir/Kconfig"
+            ensure_line_in_file "$driver_dir/Makefile" 'obj-$(CONFIG_KSU) += kernelsu/'
+            insert_line_before_first_match "$driver_dir/Kconfig" "endmenu" "source \"$kconfig_source\""
           }
 
           set_config_value() {
@@ -278,6 +316,37 @@ jobs:
                 echo "${key}=${value}" >> "$config_file"
               fi
             fi
+          }
+
+          enable_config_values() {
+            local config_file="$1"
+            shift
+            local key
+
+            for key in "$@"; do
+              set_config_value "$config_file" "$key" y
+            done
+          }
+
+          enable_susfs_configs() {
+            local config_file="$1"
+
+            enable_config_values "$config_file" \
+              CONFIG_KSU_SUSFS \
+              CONFIG_KSU_SUSFS_SUS_PATH \
+              CONFIG_KSU_SUSFS_SUS_MOUNT \
+              CONFIG_KSU_SUSFS_SUS_KSTAT \
+              CONFIG_KSU_SUSFS_SPOOF_UNAME \
+              CONFIG_KSU_SUSFS_ENABLE_LOG \
+              CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS \
+              CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG
+          }
+
+          enable_ksu_common_configs() {
+            local config_file="$1"
+
+            enable_config_values "$config_file" \
+              CONFIG_TMPFS_XATTR
           }
 
           CLANG_ROOT="${GITHUB_WORKSPACE}/toolchains/${{ inputs.clang_version }}/bin"
@@ -371,39 +440,23 @@ jobs:
 
             patch_susfs_kernelsu_layout
 
-            {
-              echo "CONFIG_KSU_SUSFS=y"
-              echo "CONFIG_KSU_SUSFS_SUS_PATH=y"
-              echo "CONFIG_KSU_SUSFS_SUS_MOUNT=y"
-              echo "CONFIG_KSU_SUSFS_SUS_KSTAT=y"
-              echo "CONFIG_KSU_SUSFS_SPOOF_UNAME=y"
-              echo "CONFIG_KSU_SUSFS_ENABLE_LOG=y"
-              echo "CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS=y"
-              echo "CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG=y"
-            } >> arch/arm64/configs/gki_defconfig
+            enable_susfs_configs arch/arm64/configs/gki_defconfig
           fi
 
           touch .scmversion
 
           if [[ "${{ inputs.ksu_type }}" != "None" ]]; then
-            echo "CONFIG_TMPFS_XATTR=y" >> arch/arm64/configs/gki_defconfig
+            enable_ksu_common_configs arch/arm64/configs/gki_defconfig
           fi
 
           make O=out gki_defconfig vendor/kalama_GKI.config vendor/oplus/kalama_GKI.config vendor/debugfs.config
 
           if [[ "${{ inputs.ksu_type }}" == *susfs ]]; then
-            set_config_value out/.config CONFIG_KSU_SUSFS y
-            set_config_value out/.config CONFIG_KSU_SUSFS_SUS_PATH y
-            set_config_value out/.config CONFIG_KSU_SUSFS_SUS_MOUNT y
-            set_config_value out/.config CONFIG_KSU_SUSFS_SUS_KSTAT y
-            set_config_value out/.config CONFIG_KSU_SUSFS_SPOOF_UNAME y
-            set_config_value out/.config CONFIG_KSU_SUSFS_ENABLE_LOG y
-            set_config_value out/.config CONFIG_KSU_SUSFS_HIDE_KSU_SUSFS_SYMBOLS y
-            set_config_value out/.config CONFIG_KSU_SUSFS_SPOOF_CMDLINE_OR_BOOTCONFIG y
+            enable_susfs_configs out/.config
           fi
 
           if [[ "${{ inputs.ksu_type }}" != "None" ]]; then
-            set_config_value out/.config CONFIG_TMPFS_XATTR y
+            enable_ksu_common_configs out/.config
           fi
 
           make O=out olddefconfig
