@@ -304,6 +304,21 @@ jobs:
             }
           }
 
+          require_kernelsu_susfs_support() {
+            local ksu_dir="$1"
+            local kconfig_file="${ksu_dir}/Kconfig"
+
+            test -f "$kconfig_file" || {
+              echo "::error::KernelSU Kconfig not found at $kconfig_file"
+              exit 1
+            }
+
+            grep -q 'KSU_SUSFS' "$kconfig_file" || {
+              echo "::error::KernelSU tree at $ksu_dir does not expose KSU_SUSFS in Kconfig"
+              exit 1
+            }
+          }
+
           setup_kernelsu_next() {
             local requested_ref="$1"
             local repo_dir="KernelSU-Next"
@@ -445,7 +460,7 @@ jobs:
               setup_kernelsu_next dev
               ;;
             "KernelSU-Next-with-susfs")
-              setup_kernelsu_next dev
+              curl --retry 5 --retry-delay 3 --retry-all-errors -fLSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
               ;;
             "ReSukiSU"|"ReSukiSU-with-susfs")
               curl --retry 5 --retry-delay 3 --retry-all-errors -fLSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -s main
@@ -467,15 +482,19 @@ jobs:
             SUSFS_REF="gki-android13-5.15"
             git clone --depth=1 --single-branch --no-tags -b "$SUSFS_REF" https://gitlab.com/simonpunk/susfs4ksu.git susfs
             cd susfs
-            cp ./kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch "${KSU_REPO_DIR}/"
             cp ./kernel_patches/50_add_susfs_in_gki-android13-5.15.patch ..
             cp ./kernel_patches/fs/* ../fs/
             cp ./kernel_patches/include/linux/* ../include/linux/
-            mkdir -p "${KSU_KERNEL_DIR}/include/linux"
-            cp ./kernel_patches/include/linux/* "${KSU_KERNEL_DIR}/include/linux/"
             cd ..
 
-            patch_kernelsu_for_susfs "${KSU_REPO_DIR}" "${KSU_KERNEL_DIR}"
+            if [[ "${{ inputs.ksu_type }}" == "KernelSU-Next-with-susfs" ]]; then
+              require_kernelsu_susfs_support "${KSU_KERNEL_DIR}"
+            else
+              cp ./susfs/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch "${KSU_REPO_DIR}/"
+              mkdir -p "${KSU_KERNEL_DIR}/include/linux"
+              cp ./susfs/kernel_patches/include/linux/* "${KSU_KERNEL_DIR}/include/linux/"
+              patch_kernelsu_for_susfs "${KSU_REPO_DIR}" "${KSU_KERNEL_DIR}"
+            fi
 
             test -f include/linux/susfs_def.h || {
               echo "::error::susfs_def.h was not copied into include/linux from $SUSFS_REF"
@@ -483,11 +502,13 @@ jobs:
               exit 1
             }
 
-            test -f "${KSU_KERNEL_DIR}/include/linux/susfs_def.h" || {
-              echo "::error::susfs_def.h was not copied into ${KSU_KERNEL_DIR}/include/linux from $SUSFS_REF"
-              find "${KSU_KERNEL_DIR}/include/linux" -maxdepth 1 -type f -name 'susfs*' -print || true
-              exit 1
-            }
+            if [[ "${{ inputs.ksu_type }}" != "KernelSU-Next-with-susfs" ]]; then
+              test -f "${KSU_KERNEL_DIR}/include/linux/susfs_def.h" || {
+                echo "::error::susfs_def.h was not copied into ${KSU_KERNEL_DIR}/include/linux from $SUSFS_REF"
+                find "${KSU_KERNEL_DIR}/include/linux" -maxdepth 1 -type f -name 'susfs*' -print || true
+                exit 1
+              }
+            fi
 
             if ! patch -p1 < 50_add_susfs_in_gki-android13-5.15.patch; then
               echo "[!] susfs patch reported conflicts, checking for known task_mmu.c drift..."
