@@ -111,6 +111,14 @@ jobs:
               ;;
           esac
 
+          if [[ "${{ inputs.ksu_type }}" == "KernelSU-Next-with-susfs" ]]; then
+            echo "::error::KernelSU-Next-with-susfs is temporarily disabled."
+            echo "::error::As of 2026-04-23, the previously documented upstream entry points are inconsistent:"
+            echo "::error::the raw next-susfs setup URL returns 404 in GitHub Actions and the rifsxd/KernelSU-Next repo does not expose a cloneable next-susfs branch."
+            echo "::error::Please use KernelSU-Next or another supported option until a known-good upstream ref is pinned."
+            exit 1
+          fi
+
       - name: Set build metadata
         run: |
           set -euo pipefail
