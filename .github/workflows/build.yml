@@ -319,13 +319,17 @@ jobs:
             }
           }
 
-          setup_kernelsu_next() {
-            local requested_ref="$1"
-            local repo_dir="KernelSU-Next"
+          setup_kernelsu_repo() {
+            local owner="$1"
+            local repo="$2"
+            local requested_ref="$3"
+            local allow_fallbacks="${4:-0}"
+            local repo_dir="$repo"
             local driver_dir
             local kconfig_source
             local ref
             local cloned=0
+            local refs_to_try
 
             driver_dir="$(detect_kernelsu_driver_dir)" || {
               echo "::error::drivers directory not found in kernel tree"
@@ -334,23 +338,29 @@ jobs:
             kconfig_source="$(kernelsu_kconfig_source_path "$driver_dir")"
 
             rm -rf "$repo_dir"
-            for ref in "$requested_ref" dev main; do
+
+            refs_to_try="$requested_ref"
+            if [[ "$allow_fallbacks" == "1" ]]; then
+              refs_to_try="$refs_to_try dev main"
+            fi
+
+            for ref in $refs_to_try; do
               if [[ -z "$ref" ]]; then
                 continue
               fi
 
-              if git clone --depth=1 --single-branch --no-tags -b "$ref" https://github.com/KernelSU-Next/KernelSU-Next.git "$repo_dir"; then
-                echo "[+] Cloned KernelSU-Next branch '$ref'."
+              if git clone --depth=1 --single-branch --no-tags -b "$ref" "https://github.com/${owner}/${repo}.git" "$repo_dir"; then
+                echo "[+] Cloned ${owner}/${repo} branch '$ref'."
                 cloned=1
                 break
               fi
 
               rm -rf "$repo_dir"
-              echo "[!] KernelSU-Next branch '$ref' is unavailable, trying next fallback..."
+              echo "[!] ${owner}/${repo} branch '$ref' is unavailable, trying next fallback..."
             done
 
             if [[ "$cloned" -ne 1 ]]; then
-              echo "::error::Failed to clone KernelSU-Next from https://github.com/KernelSU-Next/KernelSU-Next.git using refs: $requested_ref, dev, main"
+              echo "::error::Failed to clone ${owner}/${repo} from https://github.com/${owner}/${repo}.git using refs: $refs_to_try"
               exit 1
             fi
 
@@ -359,6 +369,11 @@ jobs:
 
             ensure_line_in_file "$driver_dir/Makefile" 'obj-$(CONFIG_KSU) += kernelsu/'
             insert_line_before_first_match "$driver_dir/Kconfig" "endmenu" "source \"$kconfig_source\""
+          }
+
+          setup_kernelsu_next() {
+            local requested_ref="$1"
+            setup_kernelsu_repo "KernelSU-Next" "KernelSU-Next" "$requested_ref" 1
           }
 
           set_config_value() {
@@ -460,7 +475,7 @@ jobs:
               setup_kernelsu_next dev
               ;;
             "KernelSU-Next-with-susfs")
-              curl --retry 5 --retry-delay 3 --retry-all-errors -fLSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next-susfs/kernel/setup.sh" | bash -s next-susfs
+              setup_kernelsu_repo "rifsxd" "KernelSU-Next" "next-susfs"
               ;;
             "ReSukiSU"|"ReSukiSU-with-susfs")
               curl --retry 5 --retry-delay 3 --retry-all-errors -fLSs "https://raw.githubusercontent.com/ReSukiSU/ReSukiSU/main/kernel/setup.sh" | bash -s main
